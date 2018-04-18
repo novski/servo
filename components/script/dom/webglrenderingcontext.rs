@@ -4,12 +4,13 @@
 
 use byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
 use canvas_traits::canvas::{byte_swap, multiply_u8_pixel};
-use canvas_traits::webgl::{WebGLCommand, WebGLContextShareMode, WebGLError};
-use canvas_traits::webgl::{WebGLFramebufferBindingRequest, WebGLMsg, WebGLMsgSender};
-use canvas_traits::webgl::{WebGLParameter, WebGLResult, WebGLSLVersion, WebGLVersion, WebVRCommand};
-use canvas_traits::webgl::DOMToTextureCommand;
+use canvas_traits::webgl::{DOMToTextureCommand, Parameter, WebGLCommand};
+use canvas_traits::webgl::{WebGLContextShareMode, WebGLError};
+use canvas_traits::webgl::{WebGLFramebufferBindingRequest, WebGLMsg};
+use canvas_traits::webgl::{WebGLMsgSender, WebGLParameter};
+use canvas_traits::webgl::{WebGLResult, WebGLSLVersion, WebGLVersion};
+use canvas_traits::webgl::{WebVRCommand, webgl_channel};
 use canvas_traits::webgl::WebGLError::*;
-use canvas_traits::webgl::webgl_channel;
 use dom::bindings::cell::DomRefCell;
 use dom::bindings::codegen::Bindings::WebGLRenderingContextBinding::{self, WebGLContextAttributes};
 use dom::bindings::codegen::Bindings::WebGLRenderingContextBinding::WebGLRenderingContextConstants as constants;
@@ -1310,36 +1311,27 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
                     return Int32Value(constants::UNSIGNED_BYTE as i32);
                 }
             }
-            constants::VIEWPORT => {
-                let (sender, receiver) = webgl_channel().unwrap();
-                self.send_command(WebGLCommand::GetViewport(sender));
-                let (x, y, width, height) = receiver.recv().unwrap();
+            constants::VERSION => {
                 rooted!(in(cx) let mut rval = UndefinedValue());
-                [x, y, width, height].to_jsval(cx, rval.handle_mut());
+                "WebGL 1.0".to_jsval(cx, rval.handle_mut());
                 return rval.get();
             }
-            constants::ALIASED_POINT_SIZE_RANGE => {
-                let (sender, receiver) = webgl_channel().unwrap();
-                self.send_command(WebGLCommand::AliasedPointSizeRange(sender));
-                let (width, height) = receiver.recv().unwrap();
+            constants::RENDERER | constants::VENDOR => {
                 rooted!(in(cx) let mut rval = UndefinedValue());
-                [width, height].to_jsval(cx, rval.handle_mut());
+                "Mozilla/Servo".to_jsval(cx, rval.handle_mut());
                 return rval.get();
             }
-            constants::ALIASED_LINE_WIDTH_RANGE => {
-                let (sender, receiver) = webgl_channel().unwrap();
-                self.send_command(WebGLCommand::AliasedLineWidthRange(sender));
-                let (width, height) = receiver.recv().unwrap();
+            constants::SHADING_LANGUAGE_VERSION => {
                 rooted!(in(cx) let mut rval = UndefinedValue());
-                [width, height].to_jsval(cx, rval.handle_mut());
+                "WebGL GLSL ES 1.0".to_jsval(cx, rval.handle_mut());
                 return rval.get();
             }
-            _ => {
-                if !self.extension_manager.is_get_parameter_name_enabled(parameter) {
-                    self.webgl_error(WebGLError::InvalidEnum);
-                    return NullValue();
-                }
-            }
+            _ => {}
+        }
+
+        if !self.extension_manager.is_get_parameter_name_enabled(parameter) {
+            self.webgl_error(WebGLError::InvalidEnum);
+            return NullValue();
         }
 
         // Handle GetParameter getters injected via WebGL extensions
@@ -1355,20 +1347,38 @@ impl WebGLRenderingContextMethods for WebGLRenderingContext {
             }
         }
 
-        let (sender, receiver) = webgl_channel().unwrap();
-        self.send_command(WebGLCommand::GetParameter(parameter, sender));
-
-        match handle_potential_webgl_error!(self, receiver.recv().unwrap(), WebGLParameter::Invalid) {
-            WebGLParameter::Int(val) => Int32Value(val),
-            WebGLParameter::Bool(val) => BooleanValue(val),
-            WebGLParameter::Float(val) => DoubleValue(val as f64),
-            WebGLParameter::FloatArray(_) => panic!("Parameter should not be float array"),
-            WebGLParameter::String(val) => {
+        match handle_potential_webgl_error!(self, Parameter::from_u32(parameter), return NullValue()) {
+            Parameter::Bool(param) => {
+                let (sender, receiver) = webgl_channel().unwrap();
+                self.send_command(WebGLCommand::ParameterBool(param, sender));
+                BooleanValue(receiver.recv().unwrap())
+            }
+            Parameter::Int(param) => {
+                let (sender, receiver) = webgl_channel().unwrap();
+                self.send_command(WebGLCommand::ParameterInt(param, sender));
+                Int32Value(receiver.recv().unwrap())
+            }
+            Parameter::Int4(param) => {
+                let (sender, receiver) = webgl_channel().unwrap();
+                self.send_command(WebGLCommand::ParameterInt4(param, sender));
+                // FIXME(nox): https://github.com/servo/servo/issues/20655
                 rooted!(in(cx) let mut rval = UndefinedValue());
-                val.to_jsval(cx, rval.handle_mut());
+                receiver.recv().unwrap().to_jsval(cx, rval.handle_mut());
                 rval.get()
             }
-            WebGLParameter::Invalid => NullValue(),
+            Parameter::Float(param) => {
+                let (sender, receiver) = webgl_channel().unwrap();
+                self.send_command(WebGLCommand::ParameterFloat(param, sender));
+                DoubleValue(receiver.recv().unwrap() as f64)
+            }
+            Parameter::Float2(param) => {
+                let (sender, receiver) = webgl_channel().unwrap();
+                self.send_command(WebGLCommand::ParameterFloat2(param, sender));
+                // FIXME(nox): https://github.com/servo/servo/issues/20655
+                rooted!(in(cx) let mut rval = UndefinedValue());
+                receiver.recv().unwrap().to_jsval(cx, rval.handle_mut());
+                rval.get()
+            }
         }
     }
 

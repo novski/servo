@@ -28,3 +28,15 @@ opt-level = 3
 #
 #     [patch."https://github.com/servo/<repository>"]
 #     <crate> = { path = "/path/to/local/checkout" }
+cgl = {path = "../cgl-rs"}
+gleam = {path = "../gleam"}
+io-surface = {path = "../io-surface-rs"}
+offscreen_gl_context = {path = "../offscreen-rendering-context"}
+servo-skia = {path = "../skia"}
+
+[patch."https://github.com/servo/rust-azure"]
+azure = {path = "../azure"}
+
+[patch."https://github.com/servo/webrender"]
+webrender = {path = "../webrender/webrender"}
+webrender_api = {path = "../webrender/webrender_api"}

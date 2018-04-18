@@ -760,8 +760,6 @@ impl WebGLImpl {
                 Self::vertex_attrib(ctx.gl(), index, pname, chan),
             WebGLCommand::GetVertexAttribOffset(index, pname, chan) =>
                 Self::vertex_attrib_offset(ctx.gl(), index, pname, chan),
-            WebGLCommand::GetParameter(param_id, chan) =>
-                Self::parameter(ctx.gl(), param_id, chan),
             WebGLCommand::GetTexParameter(target, pname, chan) =>
                 Self::get_tex_parameter(ctx.gl(), target, pname, chan),
             WebGLCommand::GetProgramParameter(program_id, param_id, chan) =>
@@ -862,9 +860,6 @@ impl WebGLImpl {
                 ctx.gl().vertex_attrib_pointer_f32(attrib_id, size, normalized, stride, offset),
             WebGLCommand::VertexAttribPointer(attrib_id, size, data_type, normalized, stride, offset) =>
                 ctx.gl().vertex_attrib_pointer(attrib_id, size, data_type, normalized, stride, offset),
-            WebGLCommand::GetViewport(sender) => {
-                sender.send(ctx.gl().get_viewport()).unwrap();
-            }
             WebGLCommand::SetViewport(x, y, width, height) => {
                 ctx.gl().viewport(x, y, width, height);
             }
@@ -893,10 +888,21 @@ impl WebGLImpl {
                 ctx.gl().delete_vertex_arrays(&[id.get()]),
             WebGLCommand::BindVertexArray(id) =>
                 ctx.gl().bind_vertex_array(id.map_or(0, WebGLVertexArrayId::get)),
-            WebGLCommand::AliasedPointSizeRange(sender) =>
-                sender.send(ctx.gl().alias_point_size_range()).unwrap(),
-            WebGLCommand::AliasedLineWidthRange(sender) => {
-                sender.send(ctx.gl().alias_line_width_range()).unwrap()
+            WebGLCommand::ParameterBool(param, sender) => {
+                sender.send(ctx.gl().get_booleanv(param as u32)[0] != 0).unwrap()
+            }
+            WebGLCommand::ParameterInt(param, sender) => {
+                sender.send(ctx.gl().get_integerv(param as u32)[0]).unwrap()
+            }
+            WebGLCommand::ParameterInt4(param, sender) => {
+                sender.send(ctx.gl().get_integerv(param as u32)).unwrap()
+            }
+            WebGLCommand::ParameterFloat(param, sender) => {
+                sender.send(ctx.gl().get_floatv(param as u32)[0]).unwrap()
+            }
+            WebGLCommand::ParameterFloat2(param, sender) => {
+                let result = ctx.gl().get_floatv(param as u32);
+                sender.send([result[0], result[1]]).unwrap()
             }
         }
 
@@ -925,7 +931,7 @@ impl WebGLImpl {
                      program_id: WebGLProgramId,
                      index: u32,
                      chan: WebGLSender<WebGLResult<(i32, u32, String)>>) {
-        let result = if index >= gl.get_program_iv(program_id.get(), gl::ACTIVE_ATTRIBUTES) as u32 {
+        let result = if index >= gl.get_programiv(program_id.get(), gl::ACTIVE_ATTRIBUTES)[0] as u32 {
             Err(WebGLError::InvalidValue)
         } else {
             Ok(gl.get_active_attrib(program_id.get(), index))
@@ -937,7 +943,7 @@ impl WebGLImpl {
                       program_id: WebGLProgramId,
                       index: u32,
                       chan: WebGLSender<WebGLResult<(i32, u32, String)>>) {
-        let result = if index >= gl.get_program_iv(program_id.get(), gl::ACTIVE_UNIFORMS) as u32 {
+        let result = if index >= gl.get_programiv(program_id.get(), gl::ACTIVE_UNIFORMS)[0] as u32 {
             Err(WebGLError::InvalidValue)
         } else {
             Ok(gl.get_active_uniform(program_id.get(), index))
@@ -960,129 +966,6 @@ impl WebGLImpl {
         chan.send(attrib_location).unwrap();
     }
 
-    fn parameter(gl: &gl::Gl,
-                 param_id: u32,
-                 chan: WebGLSender<WebGLResult<WebGLParameter>>) {
-        let result = match param_id {
-            gl::ACTIVE_TEXTURE |
-            gl::ALPHA_BITS |
-            gl::BLEND_DST_ALPHA |
-            gl::BLEND_DST_RGB |
-            gl::BLEND_EQUATION_ALPHA |
-            gl::BLEND_EQUATION_RGB |
-            gl::BLEND_SRC_ALPHA |
-            gl::BLEND_SRC_RGB |
-            gl::BLUE_BITS |
-            gl::CULL_FACE_MODE |
-            gl::DEPTH_BITS |
-            gl::DEPTH_FUNC |
-            gl::FRONT_FACE |
-            //gl::GENERATE_MIPMAP_HINT |
-            gl::GREEN_BITS |
-            //gl::IMPLEMENTATION_COLOR_READ_FORMAT |
-            //gl::IMPLEMENTATION_COLOR_READ_TYPE |
-            gl::MAX_COMBINED_TEXTURE_IMAGE_UNITS |
-            gl::MAX_CUBE_MAP_TEXTURE_SIZE |
-            //gl::MAX_FRAGMENT_UNIFORM_VECTORS |
-            gl::MAX_RENDERBUFFER_SIZE |
-            gl::MAX_TEXTURE_IMAGE_UNITS |
-            gl::MAX_TEXTURE_SIZE |
-            //gl::MAX_VARYING_VECTORS |
-            gl::MAX_VERTEX_ATTRIBS |
-            gl::MAX_VERTEX_TEXTURE_IMAGE_UNITS |
-            //gl::MAX_VERTEX_UNIFORM_VECTORS |
-            gl::PACK_ALIGNMENT |
-            gl::RED_BITS |
-            gl::SAMPLE_BUFFERS |
-            gl::SAMPLES |
-            gl::STENCIL_BACK_FAIL |
-            gl::STENCIL_BACK_FUNC |
-            gl::STENCIL_BACK_PASS_DEPTH_FAIL |
-            gl::STENCIL_BACK_PASS_DEPTH_PASS |
-            gl::STENCIL_BACK_REF |
-            gl::STENCIL_BACK_VALUE_MASK |
-            gl::STENCIL_BACK_WRITEMASK |
-            gl::STENCIL_BITS |
-            gl::STENCIL_CLEAR_VALUE |
-            gl::STENCIL_FAIL |
-            gl::STENCIL_FUNC |
-            gl::STENCIL_PASS_DEPTH_FAIL |
-            gl::STENCIL_PASS_DEPTH_PASS |
-            gl::STENCIL_REF |
-            gl::STENCIL_VALUE_MASK |
-            gl::STENCIL_WRITEMASK |
-            gl::SUBPIXEL_BITS |
-            gl::UNPACK_ALIGNMENT |
-            gl::FRAGMENT_SHADER_DERIVATIVE_HINT =>
-            //gl::UNPACK_COLORSPACE_CONVERSION_WEBGL =>
-                Ok(WebGLParameter::Int(gl.get_integer_v(param_id))),
-
-            gl::BLEND |
-            gl::CULL_FACE |
-            gl::DEPTH_TEST |
-            gl::DEPTH_WRITEMASK |
-            gl::DITHER |
-            gl::POLYGON_OFFSET_FILL |
-            gl::SAMPLE_COVERAGE_INVERT |
-            gl::STENCIL_TEST =>
-            //gl::UNPACK_FLIP_Y_WEBGL |
-            //gl::UNPACK_PREMULTIPLY_ALPHA_WEBGL =>
-                Ok(WebGLParameter::Bool(gl.get_boolean_v(param_id) != 0)),
-
-            gl::DEPTH_CLEAR_VALUE |
-            gl::LINE_WIDTH |
-            gl::POLYGON_OFFSET_FACTOR |
-            gl::POLYGON_OFFSET_UNITS |
-            gl::SAMPLE_COVERAGE_VALUE =>
-                Ok(WebGLParameter::Float(gl.get_float_v(param_id))),
-
-            gl::VERSION => Ok(WebGLParameter::String("WebGL 1.0".to_owned())),
-            gl::RENDERER |
-            gl::VENDOR => Ok(WebGLParameter::String("Mozilla/Servo".to_owned())),
-            gl::SHADING_LANGUAGE_VERSION => Ok(WebGLParameter::String("WebGL GLSL ES 1.0".to_owned())),
-
-            // TODO(zbarsky, emilio): Implement support for the following valid parameters
-            // Float32Array
-            gl::ALIASED_LINE_WIDTH_RANGE |
-            //gl::ALIASED_POINT_SIZE_RANGE |
-            //gl::BLEND_COLOR |
-            gl::COLOR_CLEAR_VALUE |
-            gl::DEPTH_RANGE |
-
-            // WebGLBuffer
-            gl::ARRAY_BUFFER_BINDING |
-            gl::ELEMENT_ARRAY_BUFFER_BINDING |
-
-            // WebGLFrameBuffer
-            gl::FRAMEBUFFER_BINDING |
-
-            // WebGLRenderBuffer
-            gl::RENDERBUFFER_BINDING |
-
-            // WebGLProgram
-            gl::CURRENT_PROGRAM |
-
-            // WebGLTexture
-            gl::TEXTURE_BINDING_2D |
-            gl::TEXTURE_BINDING_CUBE_MAP |
-
-            // sequence<GlBoolean>
-            gl::COLOR_WRITEMASK |
-
-            // Uint32Array
-            gl::COMPRESSED_TEXTURE_FORMATS |
-
-            // Int32Array
-            gl::MAX_VIEWPORT_DIMS |
-            gl::SCISSOR_BOX => Err(WebGLError::InvalidEnum),
-
-            // Invalid parameters
-            _ => Err(WebGLError::InvalidEnum)
-        };
-
-        chan.send(result).unwrap();
-    }
-
     fn get_tex_parameter(gl: &gl::Gl,
                        target: u32,
                        pname: u32,
@@ -1100,19 +983,19 @@ impl WebGLImpl {
                      index: u32,
                      pname: u32,
                      chan: WebGLSender<WebGLResult<WebGLParameter>>) {
-        let result = if index >= gl.get_integer_v(gl::MAX_VERTEX_ATTRIBS) as u32 {
+        let result = if index >= gl.get_integerv(gl::MAX_VERTEX_ATTRIBS)[0] as u32 {
             Err(WebGLError::InvalidValue)
         } else {
             match pname {
                 gl::VERTEX_ATTRIB_ARRAY_ENABLED |
                 gl::VERTEX_ATTRIB_ARRAY_NORMALIZED =>
-                    Ok(WebGLParameter::Bool(gl.get_vertex_attrib_iv(index, pname) != 0)),
+                    Ok(WebGLParameter::Bool(gl.get_vertex_attribiv(index, pname)[0] != 0)),
                 gl::VERTEX_ATTRIB_ARRAY_SIZE |
                 gl::VERTEX_ATTRIB_ARRAY_STRIDE |
                 gl::VERTEX_ATTRIB_ARRAY_TYPE =>
-                    Ok(WebGLParameter::Int(gl.get_vertex_attrib_iv(index, pname))),
+                    Ok(WebGLParameter::Int(gl.get_vertex_attribiv(index, pname)[0])),
                 gl::CURRENT_VERTEX_ATTRIB =>
-                    Ok(WebGLParameter::FloatArray(gl.get_vertex_attrib_fv(index, pname))),
+                    Ok(WebGLParameter::FloatArray(gl.get_vertex_attribfv(index, pname))),
                 // gl::VERTEX_ATTRIB_ARRAY_BUFFER_BINDING should return WebGLBuffer
                 _ => Err(WebGLError::InvalidEnum),
             }
@@ -1137,11 +1020,11 @@ impl WebGLImpl {
             gl::DELETE_STATUS |
             gl::LINK_STATUS |
             gl::VALIDATE_STATUS =>
-                Ok(WebGLParameter::Bool(gl.get_program_iv(program_id.get(), param_id) != 0)),
+                Ok(WebGLParameter::Bool(gl.get_programiv(program_id.get(), param_id)[0] != 0)),
             gl::ATTACHED_SHADERS |
             gl::ACTIVE_ATTRIBUTES |
             gl::ACTIVE_UNIFORMS =>
-                Ok(WebGLParameter::Int(gl.get_program_iv(program_id.get(), param_id))),
+                Ok(WebGLParameter::Int(gl.get_programiv(program_id.get(), param_id)[0])),
             _ => Err(WebGLError::InvalidEnum),
         };
 
